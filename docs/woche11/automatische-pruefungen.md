@@ -174,13 +174,9 @@ Die Zeitstempel in den Job-IDs sind Ortszeit (UTC+1), `pruef_zeit` ist UTC.
 ## Grenzen
 
 - **Gleiche Daten bei jedem Lauf:** 05 prüft nur den Stand, der gerade in den Tabellen steht. Ein Montagslauf prüft deshalb jede Woche dieselben Daten, solange 01 bis 03 nicht neu laufen. Er findet dann nur Änderungen, die auf einem anderen Weg in die Tabellen gekommen sind.
-- **Scheitern ist noch nicht Melden:** Seit der Abschlussprüfung scheitert der Job bei FAIL. Bemerkt wird das aber nur, wenn jemand den Fehler sieht: von Hand am Exit-Code, im Zeitplan erst über einen Alarm. Eine Alarmrichtlinie gibt es im Projekt noch nicht (siehe [zeitplan-vorschlag.md](zeitplan-vorschlag.md)).
+- **Scheitern ist noch nicht Melden:** Seit der Abschlussprüfung scheitert der Job bei FAIL. Bemerkt wird das aber nur, wenn jemand den Fehler sieht: von Hand am Exit-Code, im Zeitplan über einen Alarm. Seit dem 24.11.2026 gibt es dafür die Alarmrichtlinie „Pizzeria Workflow fehlgeschlagen“ (siehe [zeitplan.md](zeitplan.md)).
 - **Reihenfolge:** Die Abschlussprüfung muss die letzte Anweisung in 05 bleiben. Was danach steht, läuft bei FAIL nicht mehr.
 
-## Offen: Zeitplan
+## Zeitplan
 
-Bisher läuft 05 nicht automatisch. Stand im Projekt am 24.11.2026, nur gelesen:
-
-- Cloud Scheduler und Workflows sind aktiv, aber es gibt keine Scheduler-Jobs und keine Workflows in europe-west6. Den Job `gtfs-pipeline-schedule` aus `pipeline/README.md` gibt es nicht.
-- `bigquerydatatransfer` ist aktiv, steht aber nicht auf der Liste der erlaubten APIs in CLAUDE.md. Geplante BigQuery-Abfragen (Scheduled Queries) kommen deshalb nicht in Frage.
-- Der Vorschlag steht in [zeitplan-vorschlag.md](zeitplan-vorschlag.md) und ist noch nicht umgesetzt.
+Seit dem 24.11.2026 läuft 05 jeden Montag um 06:00 (Europe/Zurich) automatisch gegen `pizzeria_dwh`, über Cloud Scheduler → Workflow `pizzeria-pruefungen` → Prozedur `pizzeria_dwh.pruefungen`. Bei FAIL scheitert der Workflow, und die Alarmrichtlinie „Pizzeria Workflow fehlgeschlagen“ meldet es per E-Mail. Umsetzung, Tests und IDs stehen in [zeitplan.md](zeitplan.md).

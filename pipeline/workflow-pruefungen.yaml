@@ -1,0 +1,44 @@
+# Workflow pizzeria-pruefungen: führt die Prüfungen aus sql/pizzeria_star_schema/05_pruefungen.sql aus.
+#
+# Ruft die Prozedur <dataset>.pruefungen() auf, die den Inhalt von 05 enthält. Meldet eine Prüfung
+# FAIL, scheitert der BigQuery-Job an der Abschlussprüfung in 05. Damit scheitert dieser Schritt,
+# und der Workflow endet mit einem Fehler. Die Alarmrichtlinie "Pizzeria Workflow fehlgeschlagen"
+# meldet das per E-Mail.
+# Argument: {"dataset": "pizzeria_dwh"} im Zeitplan, {"dataset": "pizzeria_dwh_test"} zum Testen.
+# Keine Wiederholungen: Ein FAIL soll auffallen und nicht still ein zweites Mal laufen.
+
+main:
+  params: [args]
+  steps:
+    - init:
+        assign:
+          - project: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+          - dataset: ${args.dataset}
+
+    - check_dataset:
+        # Der Name wird in die SQL-Anweisung eingesetzt, darum nur bekannte Datasets.
+        switch:
+          - condition: ${not(dataset in ["pizzeria_dwh", "pizzeria_dwh_test"])}
+            steps:
+              - stop_unknown_dataset:
+                  raise: '${"Unbekanntes Dataset " + dataset}'
+
+    - run_checks:
+        # Der Connector startet den Job und wartet, bis er fertig ist. Scheitert der Job, wirft der
+        # Connector einen Fehler, und der Workflow endet hier.
+        call: googleapis.bigquery.v2.jobs.insert
+        args:
+          projectId: ${project}
+          body:
+            jobReference:
+              location: europe-west6
+            configuration:
+              query:
+                useLegacySql: false
+                query: ${"CALL " + dataset + ".pruefungen()"}
+        result: job
+
+    - done:
+        return:
+          dataset: ${dataset}
+          bigquery_job: ${job.jobReference.jobId}
