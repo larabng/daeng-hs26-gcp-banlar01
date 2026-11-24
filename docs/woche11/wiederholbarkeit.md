@@ -115,7 +115,10 @@ Projekt `daeng-banlar01-x4q9`, Location europe-west6. Ansehen mit `bq show -j --
 | Fingerabdruck Fakt | `fingerprint_pizzeria_dwh_test_lauf1_20261124_095150_fakt` | `fingerprint_pizzeria_dwh_test_lauf2_20261124_095241_fakt` |
 | Fingerabdruck Abfrage A | `fingerprint_pizzeria_dwh_test_lauf1_20261124_095150_checkA` | `fingerprint_pizzeria_dwh_test_lauf2_20261124_095241_checkA` |
 
-Gegenprobe `pizzeria_dwh` vorher: `bqjob_r5154b031f23ef573_000001a20cbfdcd7_1`. Die Job-ID der Gegenprobe nachher wurde nicht festgehalten.
+Gegenprobe `pizzeria_dwh`:
+
+- vorher: `bqjob_r5154b031f23ef573_000001a20cbfdcd7_1`
+- nachher: `gegenprobe_pizzeria_dwh_20261124_102816` (2026-11-24 09:28 UTC). Diese Abfrage wurde in Teil 2 nachgeholt, rund 35 Minuten nach Lauf 2, weil die Job-ID der ersten Gegenprobe direkt nach Lauf 2 nicht festgehalten wurde. Sie zeigt dieselben Werte wie in der Tabelle oben: unveränderte Zeilenzahlen und letzte Änderung am 2026-11-12.
 
 ## Grenzen
 

@@ -1,0 +1,106 @@
+# Woche 11, Teil 2: Automatisierte Prüfungen
+
+Stand: 24.11.2026, Branch `woche11/pipeline`
+
+**Ziel:** Die Prüfungen aus Abfrage A in `04_checks.sql` sollen ohne feste Sollwerte laufen und ihr Ergebnis in eine Tabelle schreiben, damit sie sich automatisch und wiederholt ausführen lassen.
+
+**Rahmen:** Getestet ist nur auf `pizzeria_dwh_test` (Projekt `daeng-banlar01-x4q9`, europe-west6). Auf `pizzeria_dwh` ist 05 noch nicht gelaufen. `04_checks.sql` bleibt unverändert.
+
+## Datei: sql/pizzeria_star_schema/05_pruefungen.sql
+
+- **Ablauf:** `DECLARE lauf_zeit`, dann `CREATE TABLE IF NOT EXISTS pizzeria_dwh.pruefergebnisse`, dann `INSERT` mit einer Zeile pro Prüfung. Zum Schluss ein `SELECT`, das genau diesen Lauf anzeigt.
+- **Tabelle `pruefergebnisse`:** `pruef_zeit TIMESTAMP, nr STRING, pruefung STRING, ergebnis STRING (PASS/FAIL), detail STRING`. Alle Zeilen eines Laufs haben dieselbe `pruef_zeit`.
+- **Schreibzugriff:** nur auf `pruefergebnisse`, alle anderen Tabellen werden nur gelesen.
+- **Dataset-Name** nur als `pizzeria_dwh.` (15 Zeilen, keine Stelle ohne Punkt). So kann ihn dieselbe `sed`-Ersetzung wie in `scripts/run_pipeline.sh` umstellen.
+
+| Nr | Prüfung | Unterschied zu 04, Abfrage A |
+|---|---|---|
+| 0 | Staging nicht leer (`zeilen > 0`) | neu |
+| 1a | Summe angenommene Bestellungen Fakt = Staging | gleich |
+| 1b | Summe Pizzen Fakt = Staging | gleich |
+| 2 | Keine doppelten Schlüssel | gleich |
+| 3 | Keine verwaisten FKs | gleich |
+| 6a | Faktenzeilen = Staging-Zeilen + Staging-Zeilen mit nicht leerem `bestellungen_abgelehnt_app` | statt fest 432 (144/144/144) |
+| 6b | Summe App-Absagen in Fakt (`kanal_id = 10, status_id = 5`) = Summe `bestellungen_abgelehnt_app` im Staging | statt fest 9 |
+| Z1 | Wetter/Temperatur/Event/Wochentag pro Datum eindeutig | gleich |
+| Z2 | Wochentag CSV = berechneter Wochentag in dim_datum | gleich |
+
+Zwei Entscheidungen:
+
+- Summen stehen in `COALESCE(…, 0)`. Ohne das würde `NULL = 0` zu NULL und damit zu FAIL, obwohl beide Seiten nichts enthalten. Ein leeres Staging fängt Prüfung 0 ab.
+- Ist eine Bedingung NULL, ergibt das FAIL, weil `IF(NULL, 'PASS', 'FAIL')` den Sonst-Zweig nimmt.
+
+**Ausführen gegen ein anderes Dataset** (so in allen Testläufen):
+
+```bash
+sed "s/pizzeria_dwh\./pizzeria_dwh_test./g" sql/pizzeria_star_schema/05_pruefungen.sql \
+  | bq query --use_legacy_sql=false --location=europe-west6 --project_id=daeng-banlar01-x4q9 --job_id=<job-id>
+```
+
+`scripts/run_pipeline.sh` führt weiterhin nur 01 bis 04 aus.
+
+## Testläufe auf pizzeria_dwh_test
+
+| Lauf | pruef_zeit (UTC) | PASS | FAIL | Zeilen in pruefergebnisse danach |
+|---|---|---:|---:|---:|
+| Test 1 (legt `pruefergebnisse` an) | 2026-11-24 09:29:43 | 9 | 0 | 9 |
+| Test 2 | 2026-11-24 09:29:54 | 9 | 0 | 18 |
+
+Erwartet war: zweimal alle PASS, danach doppelt so viele Zeilen. Beides ist eingetroffen. In Test 1 meldete bq „Created …pruefergebnisse“, in Test 2 wurde nichts neu angelegt. Beide Läufe zeigen dieselben Details, unter anderem 6a „Fakt 432, erwartet 432 (Staging 288 + mit Absage 144)“ und 6b „Fakt 9, Staging 9“.
+
+## Gegentest
+
+1. **Eine Faktenzeile löschen**, nur in `pizzeria_dwh_test`. Es ist eine App-Absage-Zeile mit 3 Absagen. „Number of affected rows: 1“.
+
+   ```sql
+   DELETE FROM pizzeria_dwh_test.fakt_bestellung_stunde
+   WHERE datum_id = 20260919 AND stunde_id = 19 AND kanal_id = 10 AND status_id = 5
+   ```
+
+   Erwartet: 6a und 6b FAIL, der Rest PASS. Angenommene Bestellungen und Pizzen hängen nur an Zeilen mit `status_id = 1`.
+
+2. **05 ausführen** (pruef_zeit 2026-11-24 09:30:33 UTC):
+
+   | Nr | Ergebnis | Detail |
+   |---|---|---|
+   | 0, 1a, 1b, 2, 3, Z1, Z2 | PASS | unverändert |
+   | 6a | **FAIL** | Fakt 431, erwartet 432 (Staging 288 + mit Absage 144) |
+   | 6b | **FAIL** | Fakt 6, Staging 9 |
+
+   Der BigQuery-Job selbst endete trotzdem erfolgreich (Exit-Code 0). Ein FAIL steht nur in `pruefergebnisse` und lässt den Job nicht scheitern. Für einen automatischen Lauf braucht es deshalb eine zusätzliche Schranke, die bei FAIL einen Fehler auslöst.
+
+3. **Wiederherstellen** mit `scripts/run_pipeline.sh pizzeria_dwh_test`, Lauf-ID `20261124_103047`. Der MERGE in 03 fügt die fehlende Zeile wieder ein, und 04 zeigt wieder alle PASS. Die Prüfsumme der Faktentabelle ist danach wieder `770431044262388904` bei 432 Zeilen, also identisch mit Teil 1 ([wiederholbarkeit.md](wiederholbarkeit.md)).
+
+4. **05 erneut** (pruef_zeit 2026-11-24 09:31:20 UTC): alle 9 PASS.
+
+**Endstand `pruefergebnisse`:** 4 Läufe, 36 Zeilen, 34 PASS, 2 FAIL. Die beiden FAIL sind 6a und 6b, beide aus dem Gegentest.
+
+## Job-IDs (Beleg)
+
+Projekt `daeng-banlar01-x4q9`, Location europe-west6. Ansehen mit `bq show -j --location=europe-west6 <job-id>`.
+
+| Zweck | Job-ID |
+|---|---|
+| 05, Test 1 | `pruefungen_pizzeria_dwh_test_test1_20261124_102941` |
+| 05, Test 2 | `pruefungen_pizzeria_dwh_test_test2_20261124_102953` |
+| Zählung `pruefergebnisse` nach Test 2 | `w11_pruefergebnisse_nach_test2_20261124_103006` |
+| Auswahl der zu löschenden Zeile | `w11_kandidaten_gegentest_20261124_103006` |
+| Gegentest: DELETE einer Faktenzeile | `w11_gegentest_delete_20261124_103023` |
+| 05, Gegentest | `pruefungen_pizzeria_dwh_test_gegentest_20261124_103033` |
+| Wiederherstellen 01_ddl | `pipeline_pizzeria_dwh_test_20261124_103047_01_ddl` |
+| Wiederherstellen 02_dimensionen | `pipeline_pizzeria_dwh_test_20261124_103047_02_dimensionen` |
+| Wiederherstellen 03_elt | `pipeline_pizzeria_dwh_test_20261124_103047_03_elt` |
+| Wiederherstellen 04_checks | `pipeline_pizzeria_dwh_test_20261124_103047_04_checks` |
+| Prüfsumme Fakt nach Wiederherstellen | `w11_pruefsumme_fakt_wiederhergestellt_20261124_103118` |
+| 05, nach Wiederherstellen | `pruefungen_pizzeria_dwh_test_wiederhergestellt_20261124_103118` |
+| Endstand `pruefergebnisse` | `w11_pruefergebnisse_endstand_20261124_103326` |
+
+Die Zeitstempel in den Job-IDs sind Ortszeit (UTC+1), `pruef_zeit` ist UTC.
+
+## Offen: Zeitplan
+
+Bisher läuft 05 nicht automatisch. Stand im Projekt am 24.11.2026, nur gelesen:
+
+- Cloud Scheduler und Workflows sind aktiv, aber es gibt keine Scheduler-Jobs und keine Workflows in europe-west6. Den Job `gtfs-pipeline-schedule` aus `pipeline/README.md` gibt es nicht.
+- `bigquerydatatransfer` ist aktiv, steht aber nicht auf der Liste der erlaubten APIs in CLAUDE.md. Geplante BigQuery-Abfragen (Scheduled Queries) kommen deshalb nicht in Frage.
+- Der Vorschlag (Cloud Scheduler startet am Montag früh einen Workflow, der 05 ausführt und bei FAIL scheitert) ist noch nicht umgesetzt.
