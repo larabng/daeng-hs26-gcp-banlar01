@@ -8,10 +8,10 @@ Stand: 24.11.2026, Branch `woche11/pipeline`
 
 ## Datei: sql/pizzeria_star_schema/05_pruefungen.sql
 
-- **Ablauf:** `DECLARE lauf_zeit`, dann `CREATE TABLE IF NOT EXISTS pizzeria_dwh.pruefergebnisse`, dann `INSERT` mit einer Zeile pro Prüfung. Zum Schluss ein `SELECT`, das genau diesen Lauf anzeigt.
+- **Ablauf:** `DECLARE lauf_zeit`, dann `CREATE TABLE IF NOT EXISTS pizzeria_dwh.pruefergebnisse`, dann `INSERT` mit einer Zeile pro Prüfung. Danach ein `SELECT`, das genau diesen Lauf anzeigt, und zum Schluss die Abschlussprüfung (siehe Abschnitt „Abschlussprüfung“).
 - **Tabelle `pruefergebnisse`:** `pruef_zeit TIMESTAMP, nr STRING, pruefung STRING, ergebnis STRING (PASS/FAIL), detail STRING`. Alle Zeilen eines Laufs haben dieselbe `pruef_zeit`.
 - **Schreibzugriff:** nur auf `pruefergebnisse`, alle anderen Tabellen werden nur gelesen.
-- **Dataset-Name** nur als `pizzeria_dwh.` (15 Zeilen, keine Stelle ohne Punkt). So kann ihn dieselbe `sed`-Ersetzung wie in `scripts/run_pipeline.sh` umstellen.
+- **Dataset-Name** nur als `pizzeria_dwh.` (17 Zeilen, keine Stelle ohne Punkt). So kann ihn dieselbe `sed`-Ersetzung wie in `scripts/run_pipeline.sh` umstellen.
 
 | Nr | Prüfung | Unterschied zu 04, Abfrage A |
 |---|---|---|
@@ -37,7 +37,7 @@ sed "s/pizzeria_dwh\./pizzeria_dwh_test./g" sql/pizzeria_star_schema/05_pruefung
   | bq query --use_legacy_sql=false --location=europe-west6 --project_id=daeng-banlar01-x4q9 --job_id=<job-id>
 ```
 
-`scripts/run_pipeline.sh` führt seit diesem Teil auch 05 aus, also 01 bis 05. Getestet mit `scripts/run_pipeline.sh pizzeria_dwh_test`, Lauf-ID `20261124_104013`: 04 und 05 melden alle PASS, und `pruefergebnisse` im Test-Dataset hat danach 45 Zeilen aus 5 Läufen. Ein FAIL in 05 bricht das Skript nicht ab (siehe Gegentest).
+`scripts/run_pipeline.sh` führt seit diesem Teil auch 05 aus, also 01 bis 05. Getestet mit `scripts/run_pipeline.sh pizzeria_dwh_test`, Lauf-ID `20261124_104013`: 04 und 05 melden alle PASS, und `pruefergebnisse` im Test-Dataset hat danach 45 Zeilen aus 5 Läufen. Seit der Abschlussprüfung bricht das Skript bei einem FAIL in 05 ab (siehe „Abschlussprüfung“).
 
 ## Testläufe auf pizzeria_dwh_test
 
@@ -67,17 +67,17 @@ Erwartet war: zweimal alle PASS, danach doppelt so viele Zeilen. Beides ist eing
    | 6a | **FAIL** | Fakt 431, erwartet 432 (Staging 288 + mit Absage 144) |
    | 6b | **FAIL** | Fakt 6, Staging 9 |
 
-   Der BigQuery-Job selbst endete trotzdem erfolgreich (Exit-Code 0). Ein FAIL steht nur in `pruefergebnisse` und lässt den Job nicht scheitern. Für einen automatischen Lauf braucht es deshalb eine zusätzliche Schranke, die bei FAIL einen Fehler auslöst.
+   Der BigQuery-Job selbst endete trotzdem erfolgreich (Exit-Code 0). Ein FAIL steht nur in `pruefergebnisse` und lässt den Job nicht scheitern. Für einen automatischen Lauf braucht es deshalb eine zusätzliche Schranke, die bei FAIL einen Fehler auslöst. Diese Schranke ist inzwischen eingebaut (siehe „Abschlussprüfung“). Dieser Gegentest lief noch mit der Version ohne sie.
 
 3. **Wiederherstellen** mit `scripts/run_pipeline.sh pizzeria_dwh_test`, Lauf-ID `20261124_103047`. Der MERGE in 03 fügt die fehlende Zeile wieder ein, und 04 zeigt wieder alle PASS. Die Prüfsumme der Faktentabelle ist danach wieder `770431044262388904` bei 432 Zeilen, also identisch mit Teil 1 ([wiederholbarkeit.md](wiederholbarkeit.md)).
 
 4. **05 erneut** (pruef_zeit 2026-11-24 09:31:20 UTC): alle 9 PASS.
 
-**Endstand `pruefergebnisse`:** 4 Läufe, 36 Zeilen, 34 PASS, 2 FAIL. Die beiden FAIL sind 6a und 6b, beide aus dem Gegentest.
+**Stand `pruefergebnisse` nach diesen Tests:** 4 Läufe, 36 Zeilen, 34 PASS, 2 FAIL. Die beiden FAIL sind 6a und 6b, beide aus dem Gegentest.
 
 ## Erstlauf auf pizzeria_dwh
 
-Ausgeführt am 24.11.2026 nach Freigabe, mit der unveränderten Datei, also ohne Ersetzung:
+Ausgeführt am 24.11.2026 nach Freigabe, mit der unveränderten Datei, also ohne Ersetzung. Damals hatte 05 noch keine Abschlussprüfung. Die neue Version ist auf `pizzeria_dwh` noch nicht gelaufen.
 
 ```bash
 bq query --use_legacy_sql=false --location=europe-west6 --project_id=daeng-banlar01-x4q9 \
@@ -100,6 +100,40 @@ bq query --use_legacy_sql=false --location=europe-west6 --project_id=daeng-banla
 | **pruefergebnisse** | – | **9** | – | **2026-11-24 09:39:22 UTC** |
 
 Die sechs bestehenden Tabellen sind unverändert, neu ist nur `pruefergebnisse`.
+
+## Abschlussprüfung (Schranke)
+
+Nach dem Erstlauf ergänzt. Die letzte Anweisung in 05 lässt den Job scheitern, wenn dieser Lauf mindestens ein FAIL hat oder gar keine Zeile geschrieben hat:
+
+```sql
+SELECT
+  CASE
+    WHEN COUNT(*) = 0 THEN ERROR('Keine Pruefergebnisse fuer diesen Lauf gefunden')
+    WHEN COUNTIF(ergebnis = 'FAIL') > 0 THEN ERROR(FORMAT(
+      '%d Pruefungen FAIL (%s), siehe pizzeria_dwh.pruefergebnisse, pruef_zeit %t',
+      COUNTIF(ergebnis = 'FAIL'), STRING_AGG(IF(ergebnis = 'FAIL', nr, NULL), ', ' ORDER BY nr), lauf_zeit))
+    ELSE 'alle PASS'
+  END AS abschluss
+FROM pizzeria_dwh.pruefergebnisse
+WHERE pruef_zeit = lauf_zeit;
+```
+
+- `lauf_zeit` wird einmal am Anfang gesetzt (`DECLARE`) und im `INSERT`, in der Anzeige und hier verwendet.
+- Die Abschlussprüfung steht nach der Anzeige. So ist das Ergebnis bei Erfolg in der Ausgabe zu sehen. Scheitert das Skript, zeigt bq die Tabelle nicht an; das Ergebnis steht dann nur in `pruefergebnisse`.
+- Wenn `ERROR` auslöst, ist das `INSERT` schon abgeschlossen. Die Zeilen des Laufs bleiben also gespeichert.
+- `scripts/run_pipeline.sh` bricht wegen `set -e` ab, sobald der 05-Job scheitert: Exit-Code ungleich 0, keine „Fertig“-Zeile.
+
+**Tests, nur auf `pizzeria_dwh_test`:**
+
+| Test | Vorgehen | Ergebnis |
+|---|---|---|
+| Normaler Lauf | `scripts/run_pipeline.sh pizzeria_dwh_test`, Lauf-ID `20261124_105454` | Erfolg: 04 und 05 alle PASS, Abschluss „alle PASS“, „Fertig“-Zeile, Exit-Code 0 |
+| Gegentest | dieselbe Faktenzeile gelöscht wie oben (20260919, 19 Uhr, App, abgelehnt), dann 05 einzeln | **Job gescheitert**, bq Exit-Code 1: „Query error: 2 Pruefungen FAIL (6a, 6b), siehe pizzeria_dwh_test.pruefergebnisse, pruef_zeit 2026-11-24 09:55:43.524326+00 at [139:1]“. In `pruefergebnisse` stehen trotzdem 9 Zeilen mit dieser pruef_zeit: 6a FAIL (Fakt 431, erwartet 432), 6b FAIL (Fakt 6, Staging 9), der Rest PASS. |
+| Wiederherstellen | `scripts/run_pipeline.sh pizzeria_dwh_test`, Lauf-ID `20261124_105612` | Erfolg: 04 und 05 alle PASS (17 PASS-Zeilen), Exit-Code 0, Prüfsumme der Faktentabelle wieder `770431044262388904` bei 432 Zeilen |
+
+Der Gegentest lief mit 05 einzeln, nicht mit `run_pipeline.sh`: Dessen Schritt 03 würde die gelöschte Zeile per MERGE wieder einfügen, bevor 05 prüft. Dass das Skript bei FAIL abbricht, folgt aus dem gescheiterten 05-Job zusammen mit `set -e`. Einen ganzen Skriptlauf mit FAIL gab es nicht.
+
+**Endstand `pruefergebnisse` im Test-Dataset:** 8 Läufe, 72 Zeilen, 4 FAIL. Das sind je 6a und 6b aus den beiden Gegentests.
 
 ## Job-IDs (Beleg)
 
@@ -125,6 +159,13 @@ Projekt `daeng-banlar01-x4q9`, Location europe-west6. Ansehen mit `bq show -j --
 | Gegenprobe `pizzeria_dwh` nach dem Erstlauf | `gegenprobe_pizzeria_dwh_nach05_20261124_103934` |
 | `run_pipeline.sh` mit 05, Schritt 05 (01 bis 04 entsprechend `…_104013_01_ddl` usw.) | `pipeline_pizzeria_dwh_test_20261124_104013_05_pruefungen` |
 | Zählung `pruefergebnisse` im Test-Dataset danach | `w11_pruefergebnisse_test_nach_skript_20261124_104047` |
+| Abschlussprüfung, normaler Lauf: `run_pipeline.sh`, Schritt 05 | `pipeline_pizzeria_dwh_test_20261124_105454_05_pruefungen` |
+| Abschlussprüfung, Gegentest: DELETE | `w11_schranke_delete_20261124_105540` |
+| Abschlussprüfung, Gegentest: 05 (gescheitert) | `pruefungen_pizzeria_dwh_test_schranke_gegentest_20261124_105540` |
+| Abschlussprüfung, Gegentest: gespeicherte Zeilen | `w11_schranke_pruefergebnisse_20261124_105557` |
+| Abschlussprüfung, Wiederherstellen: `run_pipeline.sh`, Schritt 05 | `pipeline_pizzeria_dwh_test_20261124_105612_05_pruefungen` |
+| Prüfsumme Fakt nach dem Wiederherstellen | `w11_schranke_pruefsumme_20261124_105634` |
+| Endstand `pruefergebnisse` im Test-Dataset | `w11_schranke_endstand_20261124_105657` |
 
 Die Dry Runs erzeugen keinen Job und haben deshalb keine Job-ID.
 
@@ -133,7 +174,8 @@ Die Zeitstempel in den Job-IDs sind Ortszeit (UTC+1), `pruef_zeit` ist UTC.
 ## Grenzen
 
 - **Gleiche Daten bei jedem Lauf:** 05 prüft nur den Stand, der gerade in den Tabellen steht. Ein Montagslauf prüft deshalb jede Woche dieselben Daten, solange 01 bis 03 nicht neu laufen. Er findet dann nur Änderungen, die auf einem anderen Weg in die Tabellen gekommen sind.
-- **FAIL ohne Fehler:** Ein FAIL steht nur in `pruefergebnisse`, der Job endet trotzdem erfolgreich (siehe Gegentest). Ohne zusätzliche Schranke merkt es niemand.
+- **Scheitern ist noch nicht Melden:** Seit der Abschlussprüfung scheitert der Job bei FAIL. Bemerkt wird das aber nur, wenn jemand den Fehler sieht: von Hand am Exit-Code, im Zeitplan erst über einen Alarm. Eine Alarmrichtlinie gibt es im Projekt noch nicht (siehe [zeitplan-vorschlag.md](zeitplan-vorschlag.md)).
+- **Reihenfolge:** Die Abschlussprüfung muss die letzte Anweisung in 05 bleiben. Was danach steht, läuft bei FAIL nicht mehr.
 
 ## Offen: Zeitplan
 
@@ -141,4 +183,4 @@ Bisher läuft 05 nicht automatisch. Stand im Projekt am 24.11.2026, nur gelesen:
 
 - Cloud Scheduler und Workflows sind aktiv, aber es gibt keine Scheduler-Jobs und keine Workflows in europe-west6. Den Job `gtfs-pipeline-schedule` aus `pipeline/README.md` gibt es nicht.
 - `bigquerydatatransfer` ist aktiv, steht aber nicht auf der Liste der erlaubten APIs in CLAUDE.md. Geplante BigQuery-Abfragen (Scheduled Queries) kommen deshalb nicht in Frage.
-- Der Vorschlag (Cloud Scheduler startet am Montag früh einen Workflow, der 05 ausführt und bei FAIL scheitert) ist noch nicht umgesetzt.
+- Der Vorschlag steht in [zeitplan-vorschlag.md](zeitplan-vorschlag.md) und ist noch nicht umgesetzt.

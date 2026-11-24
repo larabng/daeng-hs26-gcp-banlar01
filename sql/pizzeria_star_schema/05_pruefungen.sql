@@ -6,6 +6,11 @@
 -- Zusaetzlich Pruefung 0: Staging nicht leer.
 -- Das Ergebnis wird an pizzeria_dwh.pruefergebnisse angehaengt: eine Zeile pro Pruefung und Lauf,
 -- alle Zeilen eines Laufs haben dieselbe pruef_zeit. Alle anderen Tabellen werden nur gelesen.
+-- lauf_zeit wird einmal am Anfang gesetzt und im INSERT, in der Anzeige und in der Abschlusspruefung
+-- verwendet.
+-- Abschlusspruefung am Ende: Hat dieser Lauf mindestens ein FAIL oder gar keine Zeile, bricht das
+-- Skript mit ERROR ab, und der BigQuery-Job scheitert. Die Zeilen des Laufs bleiben trotzdem in
+-- pruefergebnisse, weil das INSERT davor schon abgeschlossen ist.
 -- Summen stehen in COALESCE(..., 0). Sonst wird NULL = 0 zu NULL und damit zu FAIL, obwohl beide
 -- Seiten nichts enthalten. Ein leeres Staging faellt ueber Pruefung 0 auf.
 -- Ist eine Bedingung NULL, ergibt das FAIL (IF(NULL, ...) nimmt den Sonst-Zweig).
@@ -128,3 +133,16 @@ SELECT pruef_zeit, nr, pruefung, ergebnis, detail
 FROM pizzeria_dwh.pruefergebnisse
 WHERE pruef_zeit = lauf_zeit
 ORDER BY nr;
+
+-- Abschlusspruefung: laesst den Job scheitern, wenn dieser Lauf mindestens ein FAIL hat
+-- oder keine Zeile geschrieben hat. Muss die letzte Anweisung bleiben.
+SELECT
+  CASE
+    WHEN COUNT(*) = 0 THEN ERROR('Keine Pruefergebnisse fuer diesen Lauf gefunden')
+    WHEN COUNTIF(ergebnis = 'FAIL') > 0 THEN ERROR(FORMAT(
+      '%d Pruefungen FAIL (%s), siehe pizzeria_dwh.pruefergebnisse, pruef_zeit %t',
+      COUNTIF(ergebnis = 'FAIL'), STRING_AGG(IF(ergebnis = 'FAIL', nr, NULL), ', ' ORDER BY nr), lauf_zeit))
+    ELSE 'alle PASS'
+  END AS abschluss
+FROM pizzeria_dwh.pruefergebnisse
+WHERE pruef_zeit = lauf_zeit;

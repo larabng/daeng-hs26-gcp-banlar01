@@ -11,8 +11,9 @@
 # - Das Dataset muss schon existieren (bq mk --dataset --location=europe-west6 <projekt>:<dataset>).
 # - Jeder Schritt bekommt eine feste Job-ID: pipeline_<dataset>_<lauf-id>_<datei>.
 # - Der temporaere Ordner wird nicht geloescht, damit man nachsehen kann, was gelaufen ist.
-# - 05_pruefungen haengt das Pruefergebnis an <dataset>.pruefergebnisse an. Ein FAIL bricht das
-#   Skript nicht ab: der BigQuery-Job ist trotzdem erfolgreich, das FAIL steht nur in der Tabelle.
+# - 05_pruefungen haengt das Pruefergebnis an <dataset>.pruefergebnisse an. Hat der Lauf mindestens
+#   ein FAIL, scheitert der 05-Job an der Abschlusspruefung, und das Skript bricht ab (set -e,
+#   Exit-Code ungleich 0, keine "Fertig"-Zeile). Die Ergebnisse des Laufs stehen trotzdem in der Tabelle.
 
 set -euo pipefail
 
