@@ -9,3 +9,6 @@ Executions mit allen Schritten: Console → Workflows → gtfs-pipeline → Exec
 
 Alarm (`alert-policy.yaml`): eine E-Mail, sobald ein Cloud-Run-Job im Projekt oder der Workflow fehlschlägt, keine beim Schliessen des Vorfalls (`notificationPrompts: [OPENED]`, denn geschlossen heisst nur, dass die Bedingung nicht mehr zutrifft). Der Vorfall steht unter Monitoring → Alerting.
 `CHANNEL_ID` in `alert-policy.yaml` ist ein Platzhalter und wird erst beim Anlegen der Richtlinie durch den eigenen E-Mail-Kanal ersetzt.
+
+Workflow `pizzeria-pruefungen` (`workflow-pruefungen.yaml`): ruft die BigQuery-Prozedur `<dataset>.pruefungen()` mit dem Inhalt von `sql/pizzeria_star_schema/05_pruefungen.sql` auf und scheitert, sobald eine Prüfung FAIL meldet. Der Scheduler-Job `pizzeria-pruefungen-montag` startet ihn Montag um 06:00 (Europe/Zurich) mit `{"dataset": "pizzeria_dwh"}`. Details in `docs/woche11/zeitplan.md`.
+Alarm für die Prüfungen (`alert-policy-pruefungen.yaml`): Richtlinie „Pizzeria Workflow fehlgeschlagen“, eine E-Mail bei jeder fehlgeschlagenen Execution von `pizzeria-pruefungen`. `CHANNEL_ID` ist auch hier ein Platzhalter.
