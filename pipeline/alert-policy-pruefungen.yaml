@@ -1,0 +1,48 @@
+# Alarmrichtlinie: eine E-Mail, sobald eine Execution des Workflows pizzeria-pruefungen fehlschlägt.
+#
+# Der Workflow scheitert, wenn 05_pruefungen.sql mindestens eine Prüfung FAIL meldet
+# (Abschlussprüfung), oder wenn er selbst nicht durchläuft, zum Beispiel wegen fehlender Rechte.
+# Gezählt wird über eine Metrik, die Workflows von selbst schreibt. Kein Log-Filter: Metriken hängen
+# nicht am Wortlaut einer Fehlermeldung.
+# Nur dieser Workflow. Für die gtfs-pipeline gibt es die eigene Vorlage alert-policy.yaml.
+
+displayName: Pizzeria Workflow fehlgeschlagen
+combiner: OR
+
+documentation:
+  mimeType: text/markdown
+  content: >-
+    Öffne in der Console Workflows → pizzeria-pruefungen → Executions und dort die fehlgeschlagene
+    Execution. Die Fehlermeldung nennt die Prüfungen mit FAIL und die pruef_zeit. Alle Ergebnisse
+    dieses Laufs stehen in pizzeria_dwh.pruefergebnisse mit dieser pruef_zeit.
+
+conditions:
+  - displayName: Workflow pizzeria-pruefungen fehlgeschlagen
+    conditionThreshold:
+      filter: >-
+        resource.type = "workflows.googleapis.com/Workflow"
+        AND resource.label.workflow_id = "pizzeria-pruefungen"
+        AND metric.type = "workflows.googleapis.com/finished_execution_count"
+        AND metric.labels.status = "FAILED"
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+          crossSeriesReducer: REDUCE_SUM
+      comparison: COMPARISON_GT
+      thresholdValue: 0
+      # Sofort melden: schon ein einziger Fehlschlag ist ein Grund nachzusehen.
+      duration: 0s
+      trigger:
+        count: 1
+
+alertStrategy:
+  # Nur beim Öffnen eines Vorfalls benachrichtigen. Dass Monitoring ihn wieder schliesst, heisst nur,
+  # dass keine neuen Fehlschläge kommen, nicht, dass etwas repariert wurde.
+  notificationPrompts:
+    - OPENED
+  autoClose: 1800s
+
+# Platzhalter: wird beim Anlegen durch den vollen Namen des E-Mail-Kanals ersetzt
+# (projects/<projekt>/notificationChannels/<id>), damit im Repo keine ID steht.
+notificationChannels:
+  - CHANNEL_ID
