@@ -4,7 +4,7 @@ Stand: 24.11.2026, Branch `woche11/pipeline`
 
 **Ziel:** Die Prüfungen aus Abfrage A in `04_checks.sql` sollen ohne feste Sollwerte laufen und ihr Ergebnis in eine Tabelle schreiben, damit sie sich automatisch und wiederholt ausführen lassen.
 
-**Rahmen:** Getestet ist nur auf `pizzeria_dwh_test` (Projekt `daeng-banlar01-x4q9`, europe-west6). Auf `pizzeria_dwh` ist 05 noch nicht gelaufen. `04_checks.sql` bleibt unverändert.
+**Rahmen:** Getestet auf `pizzeria_dwh_test` (Projekt `daeng-banlar01-x4q9`, europe-west6), danach ein Erstlauf auf `pizzeria_dwh` (siehe „Erstlauf auf pizzeria_dwh“). `04_checks.sql` bleibt unverändert.
 
 ## Datei: sql/pizzeria_star_schema/05_pruefungen.sql
 
@@ -37,7 +37,7 @@ sed "s/pizzeria_dwh\./pizzeria_dwh_test./g" sql/pizzeria_star_schema/05_pruefung
   | bq query --use_legacy_sql=false --location=europe-west6 --project_id=daeng-banlar01-x4q9 --job_id=<job-id>
 ```
 
-`scripts/run_pipeline.sh` führt weiterhin nur 01 bis 04 aus.
+`scripts/run_pipeline.sh` führt seit diesem Teil auch 05 aus, also 01 bis 05. Getestet mit `scripts/run_pipeline.sh pizzeria_dwh_test`, Lauf-ID `20261124_104013`: 04 und 05 melden alle PASS, und `pruefergebnisse` im Test-Dataset hat danach 45 Zeilen aus 5 Läufen. Ein FAIL in 05 bricht das Skript nicht ab (siehe Gegentest).
 
 ## Testläufe auf pizzeria_dwh_test
 
@@ -75,6 +75,32 @@ Erwartet war: zweimal alle PASS, danach doppelt so viele Zeilen. Beides ist eing
 
 **Endstand `pruefergebnisse`:** 4 Läufe, 36 Zeilen, 34 PASS, 2 FAIL. Die beiden FAIL sind 6a und 6b, beide aus dem Gegentest.
 
+## Erstlauf auf pizzeria_dwh
+
+Ausgeführt am 24.11.2026 nach Freigabe, mit der unveränderten Datei, also ohne Ersetzung:
+
+```bash
+bq query --use_legacy_sql=false --location=europe-west6 --project_id=daeng-banlar01-x4q9 \
+  --job_id=pruefungen_pizzeria_dwh_erstlauf_20261124_103920 < sql/pizzeria_star_schema/05_pruefungen.sql
+```
+
+1. **Dry Run der ganzen Datei:** „lower bound of 0 bytes“. Bei einem Skript nennt BigQuery nur eine Untergrenze, weil es Anweisungen, die von früheren Anweisungen abhängen, nicht vorab schätzt. Darum ein zweiter Dry Run nur auf den lesenden Teil: `WITH …` bis vor das abschliessende `SELECT`, mit `CURRENT_TIMESTAMP()` statt `lauf_zeit`. Ergebnis: **31 238 Bytes**.
+2. **Lauf:** „Created …pizzeria_dwh.pruefergebnisse“, 9 Zeilen, alle PASS (pruef_zeit 2026-11-24 09:39:21 UTC). Die Details sind dieselben wie in den Testläufen, zum Beispiel 6a „Fakt 432, erwartet 432“ und 6b „Fakt 9, Staging 9“.
+3. **Bytes laut Job:** verarbeitet 32 052, abgerechnet 83 886 080 (80 MiB). Die abgerechnete Menge ist höher, weil BigQuery pro Abfrage und referenzierter Tabelle mindestens 10 MB abrechnet.
+4. **Gegenprobe `pizzeria_dwh.__TABLES__`** direkt vor und nach dem Lauf:
+
+| Tabelle | Zeilen vorher | Zeilen nachher | zuletzt geändert, vorher | zuletzt geändert, nachher |
+|---|---:|---:|---|---|
+| dim_bestellstatus | 5 | 5 | 2026-11-12 13:55:51 UTC | 2026-11-12 13:55:51 UTC |
+| dim_datum | 12 | 12 | 2026-11-12 13:57:36 UTC | 2026-11-12 13:57:36 UTC |
+| dim_kanal | 6 | 6 | 2026-11-12 13:55:50 UTC | 2026-11-12 13:55:50 UTC |
+| dim_stunde | 12 | 12 | 2026-11-12 13:55:48 UTC | 2026-11-12 13:55:48 UTC |
+| fakt_bestellung_stunde | 432 | 432 | 2026-11-12 13:57:38 UTC | 2026-11-12 13:57:38 UTC |
+| stg_datenausschnitt | 288 | 288 | 2026-11-12 13:57:35 UTC | 2026-11-12 13:57:35 UTC |
+| **pruefergebnisse** | – | **9** | – | **2026-11-24 09:39:22 UTC** |
+
+Die sechs bestehenden Tabellen sind unverändert, neu ist nur `pruefergebnisse`.
+
 ## Job-IDs (Beleg)
 
 Projekt `daeng-banlar01-x4q9`, Location europe-west6. Ansehen mit `bq show -j --location=europe-west6 <job-id>`.
@@ -94,8 +120,20 @@ Projekt `daeng-banlar01-x4q9`, Location europe-west6. Ansehen mit `bq show -j --
 | Prüfsumme Fakt nach Wiederherstellen | `w11_pruefsumme_fakt_wiederhergestellt_20261124_103118` |
 | 05, nach Wiederherstellen | `pruefungen_pizzeria_dwh_test_wiederhergestellt_20261124_103118` |
 | Endstand `pruefergebnisse` | `w11_pruefergebnisse_endstand_20261124_103326` |
+| Gegenprobe `pizzeria_dwh` vor dem Erstlauf | `gegenprobe_pizzeria_dwh_vor05_20261124_103904` |
+| 05, Erstlauf auf `pizzeria_dwh` | `pruefungen_pizzeria_dwh_erstlauf_20261124_103920` |
+| Gegenprobe `pizzeria_dwh` nach dem Erstlauf | `gegenprobe_pizzeria_dwh_nach05_20261124_103934` |
+| `run_pipeline.sh` mit 05, Schritt 05 (01 bis 04 entsprechend `…_104013_01_ddl` usw.) | `pipeline_pizzeria_dwh_test_20261124_104013_05_pruefungen` |
+| Zählung `pruefergebnisse` im Test-Dataset danach | `w11_pruefergebnisse_test_nach_skript_20261124_104047` |
+
+Die Dry Runs erzeugen keinen Job und haben deshalb keine Job-ID.
 
 Die Zeitstempel in den Job-IDs sind Ortszeit (UTC+1), `pruef_zeit` ist UTC.
+
+## Grenzen
+
+- **Gleiche Daten bei jedem Lauf:** 05 prüft nur den Stand, der gerade in den Tabellen steht. Ein Montagslauf prüft deshalb jede Woche dieselben Daten, solange 01 bis 03 nicht neu laufen. Er findet dann nur Änderungen, die auf einem anderen Weg in die Tabellen gekommen sind.
+- **FAIL ohne Fehler:** Ein FAIL steht nur in `pruefergebnisse`, der Job endet trotzdem erfolgreich (siehe Gegentest). Ohne zusätzliche Schranke merkt es niemand.
 
 ## Offen: Zeitplan
 

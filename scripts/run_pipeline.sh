@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/run_pipeline.sh
-# Fuehrt sql/pizzeria_star_schema/01 bis 04 gegen ein frei waehlbares Dataset aus.
+# Fuehrt sql/pizzeria_star_schema/01 bis 05 gegen ein frei waehlbares Dataset aus.
 #
 # Aufruf:  scripts/run_pipeline.sh <dataset>
 # Beispiel: scripts/run_pipeline.sh pizzeria_dwh_test
@@ -11,6 +11,8 @@
 # - Das Dataset muss schon existieren (bq mk --dataset --location=europe-west6 <projekt>:<dataset>).
 # - Jeder Schritt bekommt eine feste Job-ID: pipeline_<dataset>_<lauf-id>_<datei>.
 # - Der temporaere Ordner wird nicht geloescht, damit man nachsehen kann, was gelaufen ist.
+# - 05_pruefungen haengt das Pruefergebnis an <dataset>.pruefergebnisse an. Ein FAIL bricht das
+#   Skript nicht ab: der BigQuery-Job ist trotzdem erfolgreich, das FAIL steht nur in der Tabelle.
 
 set -euo pipefail
 
@@ -48,7 +50,7 @@ echo "Ziel-Dataset: $dataset"
 echo "Lauf-ID:      $lauf_id"
 echo "Kopien in:    $tmp_dir"
 
-for name in 01_ddl 02_dimensionen 03_elt 04_checks; do
+for name in 01_ddl 02_dimensionen 03_elt 04_checks 05_pruefungen; do
   sed "s/pizzeria_dwh\./${dataset}./g" "$sql_dir/$name.sql" > "$tmp_dir/$name.sql"
   job_id="pipeline_${dataset}_${lauf_id}_${name}"
   echo
@@ -62,4 +64,4 @@ for name in 01_ddl 02_dimensionen 03_elt 04_checks; do
 done
 
 echo
-echo "Fertig: 01 bis 04 ohne Fehler gegen $projekt:$dataset gelaufen (Lauf-ID $lauf_id)."
+echo "Fertig: 01 bis 05 ohne Fehler gegen $projekt:$dataset gelaufen (Lauf-ID $lauf_id)."
