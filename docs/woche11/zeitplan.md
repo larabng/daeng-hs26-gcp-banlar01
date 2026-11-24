@@ -79,6 +79,11 @@ In dieser Reihenfolge. Die Tests liefen auf `pizzeria_dwh_test`, erst danach wur
    - Execution `f2eaba7f-a882-4a3f-898c-d56628c29864`: `SUCCEEDED`, Argument `{"dataset":"pizzeria_dwh"}`, BigQuery-Job `job_KU309B0CwPxFv9b3dn6_5xOxQRAJ`.
    - In `pizzeria_dwh.pruefergebnisse` stehen 9 × PASS mit pruef_zeit 2026-11-24 10:31:35 UTC. Die Tabelle hat jetzt 18 Zeilen: 9 vom Erstlauf, 9 von diesem Lauf (Job `w11_scheduler_lauf_kontrolle_20261124_113153`).
    - Gegenprobe `pizzeria_dwh.__TABLES__` (Job `gegenprobe_pizzeria_dwh_nach_scheduler_20261124_113203`): Die sechs bestehenden Tabellen sind unverändert (letzte Änderung 2026-11-12), nur `pruefergebnisse` ist gewachsen.
+9. **Alarmtest bis zur E-Mail**, nur auf `pizzeria_dwh_test`:
+   - Eine Faktenzeile gelöscht (Job `w11_alarmtest_delete_20261124_113957`), dann den Workflow mit `{"dataset": "pizzeria_dwh_test"}` gestartet.
+   - Execution `22d5156e-6a9c-4b03-a10f-6b00249293b1`: `FAILED`, BigQuery-Job `job_Ak7LR_p_veKkT5RiXPkoTsVpK0Hl`, Meldung „2 Pruefungen FAIL (6a, 6b)“. Ende 2026-11-24 10:40:05 UTC (11:40:05 Ortszeit).
+   - Die **E-Mail der Richtlinie „Pizzeria Workflow fehlgeschlagen“ kam um 11:44 Ortszeit** an, rund 4 Minuten nach dem Fehlschlag. Das hat die Person bestätigt.
+   - Wiederherstellen mit `scripts/run_pipeline.sh pizzeria_dwh_test` (Lauf-ID `20261124_114021`): alle PASS. Die Prüfsumme der Faktentabelle ist wieder `770431044262388904` bei 432 Zeilen (Job `w11_alarmtest_pruefsumme_20261124_114044`).
 
 ### Workflow-Executions (Beleg)
 
@@ -88,6 +93,7 @@ In dieser Reihenfolge. Die Tests liefen auf `pizzeria_dwh_test`, erst danach wur
 | 5a, zweiter Versuch | `b70444c8-38ca-4d0f-8c8e-42b614cc4a66` | SUCCEEDED | `job_P8Ef6c-7soxbxUjszd1GHEuVFPP-` |
 | 5b, Gegentest | `0707dc74-7a69-49d6-a526-99044cfd5f8b` | FAILED (2 Pruefungen FAIL: 6a, 6b) | `job_a7fpmSPFag6-ss_WJtTABtBmhIl7` |
 | Scheduler, sofort ausgelöst | `f2eaba7f-a882-4a3f-898c-d56628c29864` | SUCCEEDED | `job_KU309B0CwPxFv9b3dn6_5xOxQRAJ` |
+| Alarmtest | `22d5156e-6a9c-4b03-a10f-6b00249293b1` | FAILED (2 Pruefungen FAIL: 6a, 6b), Alarm-E-Mail um 11:44 Ortszeit | `job_Ak7LR_p_veKkT5RiXPkoTsVpK0Hl` |
 
 Executions ansehen: Console → Workflows → pizzeria-pruefungen → Executions, oder
 `gcloud workflows executions describe <execution> --workflow=pizzeria-pruefungen --location=europe-west6`.
@@ -124,8 +130,8 @@ ORDER BY pruef_zeit DESC, nr;
 - **`dataEditor` auf dem ganzen Dataset:** `pruefungen-sa` hat `dataEditor` auf ganz `pizzeria_dwh` und ganz `pizzeria_dwh_test`. Es könnte damit jede Tabelle dort ändern, nicht nur `pruefergebnisse`. Enger wäre `dataViewer` auf dem Dataset und `dataEditor` nur auf der Tabelle `pruefergebnisse`. Ob `CREATE TABLE IF NOT EXISTS` mit diesen Rechten durchkommt, wenn die Tabelle schon existiert, ist nicht getestet.
 - **Montagslauf prüft dieselben Daten:** 05 prüft nur den Stand, der gerade in den Tabellen steht. Solange 01 bis 03 nicht neu laufen, prüft der Montagslauf jede Woche dieselben Daten. Er findet dann nur Änderungen, die auf einem anderen Weg in die Tabellen gekommen sind.
 - **Prozedur ist eine Kopie:** Die Prozeduren enthalten 05 im Stand vom 24.11.2026. Ändert sich `05_pruefungen.sql`, läuft im Zeitplan die alte Version, bis die Prozedur neu angelegt ist (siehe Bedienung).
-- **Alarm noch nicht bis zur E-Mail getestet:** Die Richtlinie wurde erst nach den Tests 5a und 5b angelegt. Seitdem gab es keinen fehlgeschlagenen Lauf. Dass bei FAIL wirklich eine E-Mail ankommt, ist deshalb noch nicht belegt.
-- **Auch Tests lösen den Alarm aus:** Die Bedingung filtert auf den Workflow, nicht auf das Dataset. Ein Gegentest über den Workflow auf `pizzeria_dwh_test` schickt also ebenfalls eine E-Mail.
+- **Alarm kommt mit Verzögerung:** Im Alarmtest (Schritt 9) kam die E-Mail rund 4 Minuten nach dem Fehlschlag. Mit dieser Verzögerung ist auch bei echten Fehlern zu rechnen.
+- **Auch Tests lösen den Alarm aus:** Die Bedingung filtert auf den Workflow, nicht auf das Dataset. Ein Gegentest über den Workflow auf `pizzeria_dwh_test` schickt ebenfalls eine E-Mail (so im Alarmtest geschehen).
 - **Verzögerungen:** Neue Dienstkonten und Rollen gelten erst nach einigen Minuten (Test 5a, erster Versuch). `gcloud scheduler jobs run` ruft den Workflow mit bis zu etwa einer Minute Verzögerung auf.
 - **Kosten:** Ein Lauf von 05 verarbeitet rund 32 KB, abgerechnet werden wegen der Mindestmenge 80 MiB. Für Cloud Scheduler und Workflows gibt es kostenlose Kontingente; deren aktuelle Höhe ist nicht geprüft.
 
